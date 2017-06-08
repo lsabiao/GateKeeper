@@ -1,5 +1,17 @@
 import sys
 import sqlite3
+import pickle
+
+asciimsg =r'''
+welcome to the _         _   __                               
+              | |       | | / /                               
+  __ _   __ _ | |_  ___ | |/ /   ___   ___  _ __    ___  _ __ 
+ / _` | / _` || __|/ _ \|    \  / _ \ / _ \| '_ \  / _ \| '__|
+| (_| || (_| || |_|  __/| |\  \|  __/|  __/| |_) ||  __/| |   
+ \__, | \__,_| \__|\___|\_| \_/ \___| \___|| .__/  \___||_|   
+  __/ |                                    | |                
+ |___/
+'''
 
 
 #path to the sqlite
@@ -150,25 +162,47 @@ class Fetcher:
 
 def build():
     print("Building...")
+    
     print("Fetching from {0}".format(_db_))
     f = Fetcher()
+    
     print("Fetching tables...")
-    t = f.fetchTables()
-    print("\n\ndone.")
-    #TODO escrever num config.ini
+    setOfTables = f.fetchTables()
+    
+    print("\nflushing... as 'pre.gk'")
+    with open('pre.gk','wb') as ser:
+        pickle.dump(setOfTables,ser,2)
 
+    print("Creating config file.")
+    '''
+    the config file:
+
+    [table-name]
+
+    field  - create,read,update,delete
+    #field - read-only
+    @field - create and read
+    $field - create,read and update
+
+    '''
+
+    
+
+    print("Build complete.") 
 
 
 if __name__ == "__main__":
+    print(asciimsg)
     try:
         #let's parse the args
-        if(sys.argv[1] == "build"):
+        if(sys.argv[1] =="build"):
             build()
         elif(sys.argv[1] == "run"):
             pass
         else:
             raise
     except:
+        #TODO apagar
         raise
         print("Options are 'build' or 'run'")
 
