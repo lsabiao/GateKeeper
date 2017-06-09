@@ -1,6 +1,5 @@
 import sys
 import sqlite3
-import pickle
 
 asciimsg =r'''
 welcome to the _         _   __                               
@@ -18,6 +17,20 @@ welcome to the _         _   __
 _db_ = "test.sqlite"
 
 
+#config's header
+header = '''***the gateKeeper's config file***
+
+
+tables must use the [table-name] notation
+           
+use the prefix '!field' to create,read,update,delete
+use the prefix '#field' to read-only
+use the prefix '@field' to create and read
+use the prefix '$field' to create,read and update                
+
+'''
+
+
 
 class Table:
     '''
@@ -27,7 +40,27 @@ class Table:
         self.name = name
         self.sql = ""
         self.fields = []
-    
+   
+    def serialize(self,f):
+        try:
+            f.write("[{0}]\n".format(self.name))
+            for c in self.fields:
+                mask = "!"
+                if(c.AI):
+                    mask = "#"
+
+                rel = ""
+                if(c.relation is not None):
+                    rel="({0})".format(c.relation)
+
+                f.write("{1}{0}{2}-{3}\n".format(c.name,mask,rel,c.type))
+                                    
+            return True
+        except:
+            raise
+            return False
+
+ 
     def __str__(self):
         return self.name    
 
@@ -41,7 +74,8 @@ class Field:
         self.null = False
         self.pk = False
         self.relation = None
-    
+        self.AI = False
+
     def __str__(self):
         try:
             pre = self.relation.replace(";","(")+")"
@@ -103,6 +137,7 @@ class Fetcher:
             r = r.replace("NOT NULL","NOT_NULL")
             r = r.replace("PRIMARY KEY","PK")
             r = r.replace("FOREIGN KEY","FK ")
+            r = r.replace(",","")
             info = r.split(" ")
             f = Field()
             #get the field name
@@ -123,8 +158,9 @@ class Fetcher:
                 try:
                     tab,row = info[3].replace(")","").split("(")
                 except:
-                    print("    Strange relationship found.")
-                    print("        {0}".format(r.replace("FK","FOREIGN KEY")))
+                    #TODO pegar automaticamente a PK da tabela
+                    print("    warning: strange relationship found.")
+                    print("        [{0}]".format(r.replace("FK","FOREIGN KEY")))
                     print("        ignoring...")
                     #something went wrong.
                     #ignoring
@@ -154,6 +190,8 @@ class Fetcher:
                 if("PK" in info):
                     f.pk = True
 
+                if("AUTOINCREMENT" in info):
+                    f.AI = True
             
                 print("    field: {0} of type {1} found.".format(f.name,f.type))
                 fields.append(f)
@@ -163,31 +201,24 @@ class Fetcher:
 def build():
     print("Building...")
     
-    print("Fetching from {0}".format(_db_))
+    print("database: {0}".format(_db_))
     f = Fetcher()
     
     print("Fetching tables...")
     setOfTables = f.fetchTables()
-    
-    print("\nflushing... as 'pre.gk'")
-    with open('pre.gk','wb') as ser:
-        pickle.dump(setOfTables,ser,2)
 
+    print() 
     print("Creating config file.")
-    '''
-    the config file:
-
-    [table-name]
-
-    field  - create,read,update,delete
-    #field - read-only
-    @field - create and read
-    $field - create,read and update
-
-    '''
+    
+    f = open("build.gk","w")
+    print("    Writing headers")
+    f.write(header)
+    for tab in setOfTables:
+        print("    writing table: {0}".format(tab))
+        tab.serialize(f)
 
     
-
+    print()
     print("Build complete.") 
 
 
@@ -195,14 +226,12 @@ if __name__ == "__main__":
     print(asciimsg)
     try:
         #let's parse the args
-        if(sys.argv[1] =="build"):
+        if(sys.argv[1] == "build"):
             build()
         elif(sys.argv[1] == "run"):
             pass
         else:
             raise
     except:
-        #TODO apagar
-        raise
         print("Options are 'build' or 'run'")
 
