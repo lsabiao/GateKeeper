@@ -18,17 +18,7 @@ _db_ = "test.sqlite"
 
 
 #config's header
-header = '''***the gateKeeper's config file***
-
-
-tables must use the [table-name] notation
-           
-use the prefix '!field' to create,read,update,delete
-use the prefix '#field' to read-only
-use the prefix '@field' to create and read
-use the prefix '$field' to create,read and update                
-
-'''
+header = "***the gateKeeper's config file***"
 
 
 
@@ -40,6 +30,11 @@ class Table:
         self.name = name
         self.sql = ""
         self.fields = []
+        
+        self.create = False
+        self.read   = False
+        self.update = False
+        self.delete = False
    
     def serialize(self,f):
         try:
@@ -199,6 +194,9 @@ class Fetcher:
         return fields
 
 def build():
+    '''
+        build the config file
+    '''
     print("Building...")
     
     print("database: {0}".format(_db_))
@@ -206,21 +204,76 @@ def build():
     
     print("Fetching tables...")
     setOfTables = f.fetchTables()
-
-    print() 
+    print("\n") 
     print("Creating config file.")
     
     f = open("build.gk","w")
     print("    Writing headers")
     f.write(header)
+    f.write("\n\n")
     for tab in setOfTables:
         print("    writing table: {0}".format(tab))
         tab.serialize(f)
 
     
-    print()
+    print("\n")
     print("Build complete.") 
 
+
+def parse(configFile='build.gk'):
+    print("reading: {0}".format(configFile))
+    try:
+        f = open(configFile,'r').read().split("\n")
+    except:
+        print("File not found.")
+        sys.exit(1)
+
+    #tables array
+    allTables = []
+    print("Parsing...") 
+    currentTable = None
+    for line in f:
+        try:
+            #is it a blank line?
+            line[1]
+        except:
+            continue
+        if(line[0] == "["):
+            #a new table
+            if(currentTable is not None):
+                allTables.append(currentTable)
+
+            currentTable = Table(line[1:-1])
+
+            #TODO Table permits
+            currentTable.create = True
+            currentTable.read = True
+            currentTable.update = True
+            currentTable.Delete = True
+
+        elif((line[0] == "!") or (line[0] == "#")):
+            #create,read,update,delete field
+            #prepare the field
+            pre = line[1:].split("-")            
+            
+            nf = Field()
+            nf.name = pre[0]
+            nf.type = pre[1]
+            if(line[1] == "#"):
+                nf.AI = True
+
+            if(currentTable is not None):
+                currentTable.fields.append(nf)
+            else:
+                #it's a field outside a table.
+                print("Parser Error: Field {0} outside a table".format(pre[0]))
+                sys.exit(1)
+    #last table
+    if(currentTable is not None):
+        allTables.append(currentTable)
+    
+    #prepare the endpoints
+    allEndPoints = []
 
 if __name__ == "__main__":
     print(asciimsg)
@@ -229,9 +282,10 @@ if __name__ == "__main__":
         if(sys.argv[1] == "build"):
             build()
         elif(sys.argv[1] == "run"):
-            pass
+            parse()
         else:
             raise
     except:
+        raise
         print("Options are 'build' or 'run'")
 
