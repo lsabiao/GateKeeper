@@ -1,6 +1,8 @@
 import sys
 import sqlite3
 
+_ver_ = "0.1"
+
 asciimsg =r'''
 welcome to the _         _   __                               
               | |       | | / /                               
@@ -12,7 +14,6 @@ welcome to the _         _   __
  |___/
 '''
 
-
 #path to the sqlite
 _db_ = "test.sqlite"
 
@@ -21,6 +22,112 @@ _db_ = "test.sqlite"
 header = "***the gateKeeper's config file***"
 
 
+class Server:
+    '''
+        baseado no Arauto: 'http://github.com/lsabiao/arauto
+
+        O servidor deve pegar o request e procurar um endpoint adequado
+        entao deve ver se o verbo de requisicao esta disponivel
+
+        se nao for disponivel retornar erro (404?)
+        caso seja disponivel processar as queries e devolvar os dados como json
+        
+        se nao for um get, retornar o http code equivalente
+        
+        200 - ok
+        201 - created
+
+        304 - not modified
+
+        401 - bad request
+        405 - method not allowed
+
+        500 - server error
+
+    '''
+    def __init__(self,port,endpoints):
+        self.host = ""
+        self.port = port
+        self.endpoints = endpoints
+        
+
+    def run(self):
+        import socket
+        
+        self.location = socket.gethostbyaddr(socket.gethostbyname(socket.gethostname()))[0]
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.s.bind((self.host,self.port))
+        self.s.listen(10)
+
+        self.ip = socket.gethostbyaddr(socket.gethostbyname(socket.gethostname()))
+        self.ip = self.ip[2][0]
+   
+        print("Server Running")
+        
+        while True:
+            #the loop
+            self.conn, self.addr = self.s.accept()
+            self.data = self.conn.recv(1024)
+            try:
+
+                #pegar o caminho
+                self.url = self.getUrl(self.data)
+                self.method = self.data.split(b" ")[0].decode()
+                #find the endpoint
+                code = 404
+                payload = "Not Found"
+                for point in self.endpoints:
+                    if(point.url == self.url):
+                        if(self.method == "GET"):
+                            if(point.get == True):
+                                code = 200
+                                payload = ""
+                        elif(self.method == "POST"):
+                            if(point.post == True):
+                                code = 200
+                                payload = ""
+                        elif(self.method == "DELETE"):
+                            if(point.delete == True):
+                                code = 200
+                                payload = ""
+                        elif(self.method == "PUT"):
+                            if(point.put == True):
+                                code = 200
+                                payload = ""
+                print("{0} requested {1} /{2} - {3}".format(self.addr[0],self.method,self.url,code))
+                self.response = self.makeResponse(code,payload)
+                #TODO adicionar a resposta
+                self.conn.sendall(self.response)
+                self.conn.close()
+            except:
+                self.response = self.makeResponse(500,"error")
+                self.conn.close()
+
+    def getUrl(self,url):
+        #get the file name and path from the get URL
+        url = url.split(b"\r\n")[0]
+        arg = url.split(b" ")[1]
+        arg = arg.lstrip(b"/")
+        if(arg == b""):
+            arg = b"index.html"
+            return arg.decode()
+        return arg.decode()
+
+    def makeResponse(self,status,arg):
+        import datetime
+        date = datetime.datetime.now()
+        template = "HTTP/1.1 {status}\r\nLocation: {location}\r\nDate:{date}\r\nServer: {server}\r\nContent-Type: application/json\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n{body}".format(status="status",location=self.location,date=date,server="gateKeeper "+_ver_,size=len(arg),body=arg)
+        return template.encode()
+
+
+
+
+
+
+
+
+ 
 
 class Table:
     '''
@@ -30,15 +137,39 @@ class Table:
         self.name = name
         self.sql = ""
         self.fields = []
-        
+
         self.create = False
-        self.read   = False
+        self.read   = True #you can always read a table
         self.update = False
         self.delete = False
    
+    def setPermissions(self,number):
+        '''
+            duc
+            000 = 0
+            001 = 1
+            010 = 2
+            011 = 3
+            100 = 4
+            101 = 5
+            110 = 6
+            111 = 7
+        '''        
+        
+        #transform the number into the mask
+        
+        pre = "{0:b}".format(int(number)).zfill(3)
+        if(pre[2] == "1"):
+            self.create = True
+        if(pre[1] == "1"):
+            self.update = True
+        if(pre[0] == "1"):
+            self.delete = True
+
+
     def serialize(self,f):
         try:
-            f.write("[{0}]\n".format(self.name))
+            f.write("\n[{0}]-7\n".format(self.name))
             for c in self.fields:
                 mask = "!"
                 if(c.AI):
@@ -85,7 +216,17 @@ class Endpoint:
         representa um endpoint
         deve implementar GET/POST/DELETE/PUT
     '''
-    pass
+    def __init__(self, table):
+        self.url = table.name
+
+        self.get = table.read
+        self.post = table.create
+        self.delete = table.delete
+        self.put= table.update
+
+    def __str__(self):
+        return "/{0} [GET:{1} POST:{2} DELETE:{3} PUT:{4}]".format(self.url,self.get, self.post,self.delete,self.put)
+
 
 class Fetcher:
     '''
@@ -233,6 +374,7 @@ def parse(configFile='build.gk'):
     print("Parsing...") 
     currentTable = None
     for line in f:
+        line = line.strip()
         try:
             #is it a blank line?
             line[1]
@@ -243,14 +385,10 @@ def parse(configFile='build.gk'):
             if(currentTable is not None):
                 allTables.append(currentTable)
 
-            currentTable = Table(line[1:-1])
-
-            #TODO Table permits
-            currentTable.create = True
-            currentTable.read = True
-            currentTable.update = True
-            currentTable.Delete = True
-
+            currentTable = Table(line[1:-3])
+            mask = line[-1]
+            currentTable.setPermissions(mask)
+            print(".{0}".format(currentTable))
         elif((line[0] == "!") or (line[0] == "#")):
             #create,read,update,delete field
             #prepare the field
@@ -273,7 +411,17 @@ def parse(configFile='build.gk'):
         allTables.append(currentTable)
     
     #prepare the endpoints
-    allEndPoints = []
+    endPoints = []
+
+    for tab in allTables:
+        endPoints.append(Endpoint(tab))
+
+    return endPoints
+def run(endpoints,port = 8088):
+    '''
+    '''
+    web = Server(port,endpoints) 
+    web.run()
 
 if __name__ == "__main__":
     print(asciimsg)
@@ -282,7 +430,9 @@ if __name__ == "__main__":
         if(sys.argv[1] == "build"):
             build()
         elif(sys.argv[1] == "run"):
-            parse()
+            e = parse()
+            #TODO implementar novas portas
+            run(e)
         else:
             raise
     except:
