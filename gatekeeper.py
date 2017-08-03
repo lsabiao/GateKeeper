@@ -1,16 +1,21 @@
 import sys
 import sqlite3
 
-_ver_ = "0.1"
+try:
+    import ujson as json
+except:
+    import json
 
-asciimsg =r'''
-welcome to the _         _   __                               
-              | |       | | / /                               
-  __ _   __ _ | |_  ___ | |/ /   ___   ___  _ __    ___  _ __ 
+_ver_ = "0.2"
+
+asciimsg ='''
+welcome to the _         _   __
+              | |       | | / /
+  __ _   __ _ | |_  ___ | |/ /   ___   ___  _ __    ___  _ __
  / _` | / _` || __|/ _ \|    \  / _ \ / _ \| '_ \  / _ \| '__|
-| (_| || (_| || |_|  __/| |\  \|  __/|  __/| |_) ||  __/| |   
- \__, | \__,_| \__|\___|\_| \_/ \___| \___|| .__/  \___||_|   
-  __/ |                                    | |                
+| (_| || (_| || |_|  __/| |\  \|  __/|  __/| |_) ||  __/| |
+ \__, | \__,_| \__|\___|\_| \_/ \___| \___|| .__/  \___||_|
+  __/ |                                    | |
  |___/
 '''
 
@@ -31,9 +36,9 @@ class Server:
 
         se nao for disponivel retornar erro (404?)
         caso seja disponivel processar as queries e devolvar os dados como json
-        
+
         se nao for um get, retornar o http code equivalente
-        
+
         200 - ok
         201 - created
 
@@ -49,11 +54,11 @@ class Server:
         self.host = ""
         self.port = port
         self.endpoints = endpoints
-        
+
 
     def run(self):
         import socket
-        
+
         self.location = socket.gethostbyaddr(socket.gethostbyname(socket.gethostname()))[0]
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -62,9 +67,9 @@ class Server:
 
         self.ip = socket.gethostbyaddr(socket.gethostbyname(socket.gethostname()))
         self.ip = self.ip[2][0]
-   
+
         print("Server Running")
-        
+
         while True:
             #the loop
             self.conn, self.addr = self.s.accept()
@@ -82,7 +87,8 @@ class Server:
                         if(self.method == "GET"):
                             if(point.get == True):
                                 code = 200
-                                payload = ""
+                                payload = point.returnGet()
+
                         elif(self.method == "POST"):
                             if(point.post == True):
                                 code = 200
@@ -97,10 +103,10 @@ class Server:
                                 payload = ""
                 print("{0} requested {1} /{2} - {3}".format(self.addr[0],self.method,self.url,code))
                 self.response = self.makeResponse(code,payload)
-                #TODO adicionar a resposta
                 self.conn.sendall(self.response)
                 self.conn.close()
             except:
+                raise
                 self.response = self.makeResponse(500,"error")
                 self.conn.close()
 
@@ -120,15 +126,6 @@ class Server:
         template = "HTTP/1.1 {status}\r\nLocation: {location}\r\nDate:{date}\r\nServer: {server}\r\nContent-Type: application/json\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n{body}".format(status="status",location=self.location,date=date,server="gateKeeper "+_ver_,size=len(arg),body=arg)
         return template.encode()
 
-
-
-
-
-
-
-
- 
-
 class Table:
     '''
        representa uma tabela, com seus campos e estrutura
@@ -142,7 +139,7 @@ class Table:
         self.read   = True #you can always read a table
         self.update = False
         self.delete = False
-   
+
     def setPermissions(self,number):
         '''
             duc
@@ -154,10 +151,10 @@ class Table:
             101 = 5
             110 = 6
             111 = 7
-        '''        
-        
+        '''
+
         #transform the number into the mask
-        
+
         pre = "{0:b}".format(int(number)).zfill(3)
         if(pre[2] == "1"):
             self.create = True
@@ -180,15 +177,34 @@ class Table:
                     rel="({0})".format(c.relation)
 
                 f.write("{1}{0}{2}-{3}\n".format(c.name,mask,rel,c.type))
-                                    
+
             return True
         except:
             raise
             return False
 
- 
+
     def __str__(self):
-        return self.name    
+        return self.name
+
+class ReturnableMaker:
+    '''
+
+    '''
+    def __init__(self,headerList):
+        self.headers = []
+        for header in headerList:
+            self.headers.append(header)
+
+    def createReturnable(self,*args):
+
+        if(len(args[0]) == len(self.headers)):
+            r = {}
+            for ar in range(len(args[0])):
+                r[self.headers[ar]] = args[0][ar]
+            return r
+        else:
+            raise RuntimeWarning('Number of headers is different then the number of fields')
 
 class Field:
     '''
@@ -210,27 +226,66 @@ class Field:
         return "{0} ({1}) PK:{2} null:{3} REFERENCES {4}".format(self.name,\
                 self.type,self.pk,self.null,pre)
 
-
 class Endpoint:
-    ''' 
+    '''
         representa um endpoint
         deve implementar GET/POST/DELETE/PUT
     '''
     def __init__(self, table):
         self.url = table.name
 
+        self.table = table
+
         self.get = table.read
         self.post = table.create
         self.delete = table.delete
-        self.put= table.update
+        self.put = table.update
+
+    def prepareDatabase(self):
+        self.conn = sqlite3.connect(_db_)
+        self.conn.row_factory = sqlite3.Row
+        self.cur = self.conn.cursor()
+
+        return self.cur
 
     def __str__(self):
         return "/{0} [GET:{1} POST:{2} DELETE:{3} PUT:{4}]".format(self.url,self.get, self.post,self.delete,self.put)
 
+    def returnGet(self, filtro = None):
+        #TODO foreign keys
+        #TODO filtros
+
+        fieldNames = []
+
+        for tab in self.table.fields:
+            fieldNames.append(tab.name)
+
+        #criar o objeto retornavel
+        maker = ReturnableMaker(fieldNames)
+
+        cur = self.prepareDatabase()
+        query = "select * from {tableName}".format(tableName=self.url)
+        cur.execute(query)
+        pre = cur.fetchall()
+
+        payload = []
+        for p in pre:
+            payload.append(maker.createReturnable(p))
+
+        return json.dumps(payload)
+
+    def returnPost(self, filtro = None):
+        return
+
+    def returnDelete(self, filtro = None):
+        return
+
+    def returnPut(self, filtro = None):
+        return
 
 class Fetcher:
     '''
-        encontra e processa os valores que estao no banco de dados        
+        encontra e processa os valores que estao no banco de dados
     '''
     def __init__(self):
         self.conn = sqlite3.connect(_db_)
@@ -255,8 +310,8 @@ class Fetcher:
                 aux.fields = self.fetchFields(aux)
                 #append to the return
                 tables.append(aux)
-                
-        return tables        
+
+        return tables
 
     def fetchFields(self,table):
         #get all the fields from the 'table'
@@ -281,7 +336,7 @@ class Fetcher:
             if(info[0] == "FK"):
                 fi = info[1].replace("(`","")
                 fi = fi.replace("`)","")
-                
+
                 found = None
                 for fetchedField in fields:
                     if(fetchedField.name == fi):
@@ -289,7 +344,7 @@ class Fetcher:
                 if(found is None):
                     #ohhh boy.
                     raise
-                
+
                 #get the table and field
                 try:
                     tab,row = info[3].replace(")","").split("(")
@@ -301,14 +356,14 @@ class Fetcher:
                     #something went wrong.
                     #ignoring
                     continue
- 
+
                 found.relation = "{0};{1}".format(tab,row)
                 print("    relationship: between the ({0}) and the table '{1}({2})'".\
                         format(found.name,tab,row))
                 continue
             elif(info[0][0] == "`"):
                 f.name = info[0].replace("`","")
-            
+
                 #get the type of the field
                 #always the seccond one
                 if(info[1] == "BLOB"):
@@ -316,7 +371,7 @@ class Fetcher:
                     print("    field: {0} of type BLOB found.".format(f.name))
                     print("        ignoring....")
                     continue
-                f.type = info[1] 
+                f.type = info[1]
 
                 #is this field not null?
                 if("NOT_NULL" in info):
@@ -328,7 +383,7 @@ class Fetcher:
 
                 if("AUTOINCREMENT" in info):
                     f.AI = True
-            
+
                 print("    field: {0} of type {1} found.".format(f.name,f.type))
                 fields.append(f)
         #TODO testar isso com todos os tipos de fields possiveis
@@ -339,15 +394,15 @@ def build():
         build the config file
     '''
     print("Building...")
-    
+
     print("database: {0}".format(_db_))
     f = Fetcher()
-    
+
     print("Fetching tables...")
     setOfTables = f.fetchTables()
-    print("\n") 
+    print("\n")
     print("Creating config file.")
-    
+
     f = open("build.gk","w")
     print("    Writing headers")
     f.write(header)
@@ -356,10 +411,9 @@ def build():
         print("    writing table: {0}".format(tab))
         tab.serialize(f)
 
-    
-    print("\n")
-    print("Build complete.") 
 
+    print("\n")
+    print("Build complete.")
 
 def parse(configFile='build.gk'):
     print("reading: {0}".format(configFile))
@@ -371,7 +425,7 @@ def parse(configFile='build.gk'):
 
     #tables array
     allTables = []
-    print("Parsing...") 
+    print("Parsing...")
     currentTable = None
     for line in f:
         line = line.strip()
@@ -392,8 +446,8 @@ def parse(configFile='build.gk'):
         elif((line[0] == "!") or (line[0] == "#")):
             #create,read,update,delete field
             #prepare the field
-            pre = line[1:].split("-")            
-            
+            pre = line[1:].split("-")
+
             nf = Field()
             nf.name = pre[0]
             nf.type = pre[1]
@@ -409,7 +463,7 @@ def parse(configFile='build.gk'):
     #last table
     if(currentTable is not None):
         allTables.append(currentTable)
-    
+
     #prepare the endpoints
     endPoints = []
 
@@ -417,10 +471,11 @@ def parse(configFile='build.gk'):
         endPoints.append(Endpoint(tab))
 
     return endPoints
+
 def run(endpoints,port = 8088):
     '''
     '''
-    web = Server(port,endpoints) 
+    web = Server(port,endpoints)
     web.run()
 
 if __name__ == "__main__":
@@ -438,4 +493,3 @@ if __name__ == "__main__":
     except:
         raise
         print("Options are 'build' or 'run'")
-
