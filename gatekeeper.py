@@ -1,26 +1,53 @@
 import sys
 import sqlite3
 
+#ujson is fasters
 try:
     import ujson as json
 except:
     import json
 
-_ver_ = "0.2"
+#colorama for Colors
+try:
+    import colorama
+    colorama.init()
+    cRED = colorama.Fore.RED
+    cBLUE = colorama.Fore.BLUE
+    cGREEN = colorama.Fore.GREEN
+    cYELLOW = colorama.Fore.YELLOW
+    cRESET_ALL = colorama.Style.RESET_ALL
+except:
+    import platform
+    if(platform.system() == "Linux"):
+        cRED = "\033[31m"
+        cBLUE = "\033[34m"
+        cGREEN = "\033[32m"
+        cYELLOW = "\033[33m"
+        cRESET_ALL = "\33[0m"
+    else:
+        cRED = ""
+        cBLUE = ""
+        cGREEN = ""
+        cYELLOW = ""
+        cRESET_ALL = ""
+
+_ver_ = "0.3"
 
 asciimsg ='''
-welcome to the _         _   __
+welcome to the{0} _         _   __
               | |       | | / /
   __ _   __ _ | |_  ___ | |/ /   ___   ___  _ __    ___  _ __
  / _` | / _` || __|/ _ \|    \  / _ \ / _ \| '_ \  / _ \| '__|
 | (_| || (_| || |_|  __/| |\  \|  __/|  __/| |_) ||  __/| |
  \__, | \__,_| \__|\___|\_| \_/ \___| \___|| .__/  \___||_|
   __/ |                                    | |
- |___/
-'''
+ |___/{1}
+'''.format(cBLUE,cRESET_ALL)
 
 #path to the sqlite
 _db_ = "test.sqlite"
+
+#ANSI Colors
 
 
 #config's header
@@ -46,6 +73,7 @@ class Server:
 
         401 - bad request
         405 - method not allowed
+        409 - conflict
 
         500 - server error
 
@@ -68,7 +96,7 @@ class Server:
         self.ip = socket.gethostbyaddr(socket.gethostbyname(socket.gethostname()))
         self.ip = self.ip[2][0]
 
-        print("Server Running")
+        print("Server Running on {0}:{1}".format(cGREEN+self.ip,cYELLOW+str(self.port)+cRESET_ALL))
 
         while True:
             #the loop
@@ -78,24 +106,43 @@ class Server:
 
                 #pegar o caminho
                 self.url = self.getUrl(self.data)
+
+                #the request URL Arguments
                 try:
-                    self.arguments = self.getArgs(self.data)
+                    self.arguments = self.getUrlArgs(self.data)
                 except:
                     self.arguments = ""
+                #the request Method
                 self.method = self.data.split(b" ")[0].decode()
+
+                self.body = self.getBody(self.data)
                 #find the endpoint
                 code = 404
                 payload = "Not Found"
                 for point in self.endpoints:
                     if(point.url == self.url):
+
+                        #THE SELECT ENDPOINT
                         if(self.method == "GET"):
                             if(point.get == True):
                                 code = 200
                                 payload = point.returnGet(self.arguments)
+
+                        #THE INSERT ENDPOINT
                         elif(self.method == "POST"):
                             if(point.post == True):
-                                code = 200
-                                payload = ""
+                                job = point.returnPost(self.body)
+                                if(job[0] == True):
+                                    code = 201
+                                    payload = job[1] #table/id
+                                elif(job[0] == None): #json parser error
+                                    code = 500
+                                    payload = "Error while parsing the JSON"
+                                elif(job[0] == False):
+                                    code = 409 #conflict
+                                    payload = job[1]
+
+                        #THE DELETE ENDPOINT
                         elif(self.method == "DELETE"):
                             payload = ""
                             if(self.arguments == ""):
@@ -106,11 +153,33 @@ class Server:
                                     code = 200
                                 else:
                                     code = 304
+
+                        #THE UPDATE ENDPOINT
                         elif(self.method == "PUT"):
                             if(point.put == True):
                                 code = 200
                                 payload = ""
-                print("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],self.method,self.url,self.arguments,code))
+
+                #COLORS!!!
+                if(self.method == "GET"):
+                    meth = "{cor}{metodo}{reset}".format(cor=cGREEN,metodo=self.method,reset=cRESET_ALL)
+                elif(self.method == "POST"):
+                    meth = "{cor}{metodo}{reset}".format(cor=cBLUE,metodo=self.method,reset=cRESET_ALL)
+                elif(self.method == "DELETE"):
+                    meth = "{cor}{metodo}{reset}".format(cor=cRED,metodo=self.method,reset=cRESET_ALL)
+                elif(self.method == "PUT"):
+                    meth = "{cor}{metodo}{reset}".format(cor=cYELLOW,metodo=self.method,reset=cRESET_ALL)
+
+                if((code >= 200) and (code < 300)):
+                    code = cGREEN+str(code)+cRESET_ALL
+                elif((code >= 300) and (code < 400)):
+                    code = cBLUE+str(code)+cRESET_ALL
+                elif((code >= 400 ) and (code < 500)):
+                    code = cYELLOW+str(code)+cRESET_ALL
+                else:
+                    code = cRED+str(code)+cRESET_ALL
+
+                print("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],meth,self.url,self.arguments,code))
                 self.response = self.makeResponse(code,payload)
                 self.conn.sendall(self.response)
                 self.conn.close()
@@ -131,13 +200,17 @@ class Server:
             return arg.decode()
         return arg.decode()
 
-    def getArgs(self,url):
+    def getUrlArgs(self,url):
         url = url.split(b"\r\n")[0]
         arg = url.split(b" ")[1]
         arg = arg.lstrip(b"/")
         #arg is path/arguments
         ret = arg.split("/")
         return ret[1].decode()
+
+    def getBody(self,data):
+        data = data.split(b"\r\n")[-1]
+        return data
 
     def makeResponse(self,status,arg):
         import datetime
@@ -190,6 +263,7 @@ class Table:
                 mask = "!"
                 if(c.PK):
                     mask = "#"
+
                 rel = ""
                 if(c.relation is not None):
                     rel="({0})".format(c.relation)
@@ -304,15 +378,48 @@ class Endpoint:
             return ""
         return json.dumps(payload)
 
-    def returnPost(self, filtro = None):
-        return
+    def returnPost(self, data):
+        #parse the Json
+        try:
+            payload = json.loads(data)
+            preCols = payload.keys()
 
-    def returnDelete(self, idPk) :
+            cols = ""
+            for c in preCols:
+                cols += c+", "
+            cols = cols.rstrip(", ")
+
+            vals = ""
+            for k in preCols:
+                #is this a string
+                if(isinstance(payload[k],basestring)):
+                        vals += "'"+str(payload[k])+"', "
+                else:
+                    vals += str(payload[k])+", "
+            vals = vals.rstrip(", ")
+        except:
+            return (None,None)
+
+        #SQL TIME!
+        query = "INSERT INTO {tableName}({cols}) VALUES({vals})".format(tableName = self.url, cols = cols, vals = vals)
+
+        conn, cur = self.prepareDatabase()
+        try:
+            ret = cur.execute(query)
+            conn.commit()
+            conn.close()
+            return (True,"/"+self.url+"/"+str(cur.lastrowid))
+        except sqlite3.IntegrityError as e:
+            conn.close()
+            return (False,str(e))
+
+    def returnDelete(self, idPk):
         conn, cur = self.prepareDatabase()
         query = "DELETE FROM {tableName} WHERE {PK} = {ID}".format(tableName = self.url, PK = self.pk.name, ID = idPk)
         ret = cur.execute(query)
         if(ret.rowcount>0):
             conn.commit()
+            conn.close()
             return True
         conn.close()
         return False
