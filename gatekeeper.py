@@ -78,6 +78,10 @@ class Server:
 
                 #pegar o caminho
                 self.url = self.getUrl(self.data)
+                try:
+                    self.arguments = self.getArgs(self.data)
+                except:
+                    self.arguments = ""
                 self.method = self.data.split(b" ")[0].decode()
                 #find the endpoint
                 code = 404
@@ -87,21 +91,26 @@ class Server:
                         if(self.method == "GET"):
                             if(point.get == True):
                                 code = 200
-                                payload = point.returnGet()
-
+                                payload = point.returnGet(self.arguments)
                         elif(self.method == "POST"):
                             if(point.post == True):
                                 code = 200
                                 payload = ""
                         elif(self.method == "DELETE"):
-                            if(point.delete == True):
-                                code = 200
-                                payload = ""
+                            payload = ""
+                            if(self.arguments == ""):
+                                code = 405
+                                continue
+                            elif(point.delete == True):
+                                if(point.returnDelete(self.arguments)):
+                                    code = 200
+                                else:
+                                    code = 304
                         elif(self.method == "PUT"):
                             if(point.put == True):
                                 code = 200
                                 payload = ""
-                print("{0} requested {1} /{2} - {3}".format(self.addr[0],self.method,self.url,code))
+                print("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],self.method,self.url,self.arguments,code))
                 self.response = self.makeResponse(code,payload)
                 self.conn.sendall(self.response)
                 self.conn.close()
@@ -111,14 +120,24 @@ class Server:
                 self.conn.close()
 
     def getUrl(self,url):
-        #get the file name and path from the get URL
+        #get the path from the get URL
         url = url.split(b"\r\n")[0]
         arg = url.split(b" ")[1]
         arg = arg.lstrip(b"/")
+        arg = arg.split("/")[0]
+
         if(arg == b""):
             arg = b"index.html"
             return arg.decode()
         return arg.decode()
+
+    def getArgs(self,url):
+        url = url.split(b"\r\n")[0]
+        arg = url.split(b" ")[1]
+        arg = arg.lstrip(b"/")
+        #arg is path/arguments
+        ret = arg.split("/")
+        return ret[1].decode()
 
     def makeResponse(self,status,arg):
         import datetime
@@ -154,8 +173,8 @@ class Table:
         '''
 
         #transform the number into the mask
-
         pre = "{0:b}".format(int(number)).zfill(3)
+
         if(pre[2] == "1"):
             self.create = True
         if(pre[1] == "1"):
@@ -169,9 +188,8 @@ class Table:
             f.write("\n[{0}]-7\n".format(self.name))
             for c in self.fields:
                 mask = "!"
-                if(c.AI):
+                if(c.PK):
                     mask = "#"
-
                 rel = ""
                 if(c.relation is not None):
                     rel="({0})".format(c.relation)
@@ -241,12 +259,21 @@ class Endpoint:
         self.delete = table.delete
         self.put = table.update
 
+        self.pk = self.findPk()
+
+    def findPk(self):
+        for f in self.table.fields:
+            if(f.pk):
+                return f
+
+        return None
+
     def prepareDatabase(self):
         self.conn = sqlite3.connect(_db_)
         self.conn.row_factory = sqlite3.Row
         self.cur = self.conn.cursor()
 
-        return self.cur
+        return (self.conn, self.cur)
 
     def __str__(self):
         return "/{0} [GET:{1} POST:{2} DELETE:{3} PUT:{4}]".format(self.url,self.get, self.post,self.delete,self.put)
@@ -263,22 +290,32 @@ class Endpoint:
         #criar o objeto retornavel
         maker = ReturnableMaker(fieldNames)
 
-        cur = self.prepareDatabase()
-        query = "select * from {tableName}".format(tableName=self.url)
+        conn, cur = self.prepareDatabase()
+        query = "SELECT * FROM {tableName}".format(tableName=self.url)
         cur.execute(query)
         pre = cur.fetchall()
+        conn.close()
 
         payload = []
         for p in pre:
             payload.append(maker.createReturnable(p))
 
+        if(payload == []):
+            return ""
         return json.dumps(payload)
 
     def returnPost(self, filtro = None):
         return
 
-    def returnDelete(self, filtro = None):
-        return
+    def returnDelete(self, idPk) :
+        conn, cur = self.prepareDatabase()
+        query = "DELETE FROM {tableName} WHERE {PK} = {ID}".format(tableName = self.url, PK = self.pk.name, ID = idPk)
+        ret = cur.execute(query)
+        if(ret.rowcount>0):
+            conn.commit()
+            return True
+        conn.close()
+        return False
 
     def returnPut(self, filtro = None):
         return
@@ -291,8 +328,10 @@ class Fetcher:
         self.conn = sqlite3.connect(_db_)
         self.conn.row_factory = sqlite3.Row
         self.cur = self.conn.cursor()
-    def fetchTables(self):
+        self.verbose = False
 
+
+    def fetchTables(self):
         #Get all the tables from this database
 
         removes = ['sqlite_sequence']
@@ -305,7 +344,8 @@ class Fetcher:
                 #a new table is created
                 aux = Table(t[0])
                 aux.sql = t[1]
-                print("\nfound table: '{0}'.".format(aux))
+                if(self.verbose):
+                    print("\nfound table: '{0}'.".format(aux))
                 #fetch the fields from the new table
                 aux.fields = self.fetchFields(aux)
                 #append to the return
@@ -350,15 +390,17 @@ class Fetcher:
                     tab,row = info[3].replace(")","").split("(")
                 except:
                     #TODO pegar automaticamente a PK da tabela
-                    print("    warning: strange relationship found.")
-                    print("        [{0}]".format(r.replace("FK","FOREIGN KEY")))
-                    print("        ignoring...")
+                    if(self.verbose):
+                        print("    warning: strange relationship found.")
+                        print("        [{0}]".format(r.replace("FK","FOREIGN KEY")))
+                        print("        ignoring...")
                     #something went wrong.
                     #ignoring
                     continue
 
                 found.relation = "{0};{1}".format(tab,row)
-                print("    relationship: between the ({0}) and the table '{1}({2})'".\
+                if(self.verbose):
+                    print("    relationship: between the ({0}) and the table '{1}({2})'".\
                         format(found.name,tab,row))
                 continue
             elif(info[0][0] == "`"):
@@ -368,8 +410,9 @@ class Fetcher:
                 #always the seccond one
                 if(info[1] == "BLOB"):
                     #ignore BLOB fields
-                    print("    field: {0} of type BLOB found.".format(f.name))
-                    print("        ignoring....")
+                    if(self.verbose):
+                        print("    field: {0} of type BLOB found.".format(f.name))
+                        print("        ignoring....")
                     continue
                 f.type = info[1]
 
@@ -383,37 +426,41 @@ class Fetcher:
 
                 if("AUTOINCREMENT" in info):
                     f.AI = True
-
-                print("    field: {0} of type {1} found.".format(f.name,f.type))
+                if(self.verbose):
+                    print("    field: {0} of type {1} found.".format(f.name,f.type))
                 fields.append(f)
         #TODO testar isso com todos os tipos de fields possiveis
         return fields
 
-def build():
+def build(readOnly = False):
     '''
         build the config file
     '''
-    print("Building...")
-
-    print("database: {0}".format(_db_))
+    if(readOnly == False):
+        print("Building...")
+        print("database: {0}".format(_db_))
     f = Fetcher()
-
-    print("Fetching tables...")
+    f.verbose = not readOnly
+    if(readOnly == False):
+        print("Fetching tables...")
+        print("\n")
     setOfTables = f.fetchTables()
-    print("\n")
-    print("Creating config file.")
-
-    f = open("build.gk","w")
-    print("    Writing headers")
-    f.write(header)
-    f.write("\n\n")
-    for tab in setOfTables:
-        print("    writing table: {0}".format(tab))
-        tab.serialize(f)
 
 
-    print("\n")
-    print("Build complete.")
+    if(readOnly == False):
+        print("Creating config file.")
+        f = open("build.gk","w")
+        print("    Writing headers")
+
+        f.write(header)
+        f.write("\n\n")
+        for tab in setOfTables:
+            print("    writing table: {0}".format(tab))
+            tab.serialize(f)
+
+    if(readOnly == False):
+        print("\n")
+        print("Build complete.")
 
 def parse(configFile='build.gk'):
     print("reading: {0}".format(configFile))
@@ -451,8 +498,8 @@ def parse(configFile='build.gk'):
             nf = Field()
             nf.name = pre[0]
             nf.type = pre[1]
-            if(line[1] == "#"):
-                nf.AI = True
+            if(line[0] == "#"):
+                nf.pk = True
 
             if(currentTable is not None):
                 currentTable.fields.append(nf)
@@ -486,6 +533,8 @@ if __name__ == "__main__":
             build()
         elif(sys.argv[1] == "run"):
             e = parse()
+            build(True)
+
             #TODO implementar novas portas
             run(e)
         else:
