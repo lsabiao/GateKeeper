@@ -96,7 +96,7 @@ class Server:
         self.ip = socket.gethostbyaddr(socket.gethostbyname(socket.gethostname()))
         self.ip = self.ip[2][0]
 
-        print("Server Running on {0}:{1}".format(cGREEN+self.ip,cYELLOW+str(self.port)+cRESET_ALL))
+        print("Server Running on {0}:{1}\n".format(cGREEN+self.ip,cYELLOW+str(self.port)+cRESET_ALL))
 
         while True:
             #the loop
@@ -135,9 +135,11 @@ class Server:
                                 if(job[0] == True):
                                     code = 201
                                     payload = job[1] #table/id
+                                    continue
                                 elif(job[0] == None): #json parser error
                                     code = 500
                                     payload = "Error while parsing the JSON"
+                                    continue
                                 elif(job[0] == False):
                                     code = 409 #conflict
                                     payload = job[1]
@@ -155,10 +157,28 @@ class Server:
                                     code = 304
 
                         #THE UPDATE ENDPOINT
-                        elif(self.method == "PUT"):
-                            if(point.put == True):
-                                code = 200
-                                payload = ""
+                        elif(self.method == "PATCH"):
+                            if(point.patch == True):
+                                if(self.arguments == ""):
+                                    code = 401
+                                    payload = ""
+                                    continue
+                                if(self.body == ""):
+                                    code = 204
+                                    payload = "no body found"
+                                    continue
+                                job = point.returnPatch(self.arguments,self.body)
+                                if(job[0] == True):
+                                    code = 201
+                                    payload = ""
+                                    continue
+                                elif(job[0] == False):
+                                    code = 404
+                                    payload = ""
+                                elif(job[0] == None): #json parser error
+                                    code = 500
+                                    payload = "Error while parsing the JSON"
+
 
                 #COLORS!!!
                 if(self.method == "GET"):
@@ -167,7 +187,7 @@ class Server:
                     meth = "{cor}{metodo}{reset}".format(cor=cBLUE,metodo=self.method,reset=cRESET_ALL)
                 elif(self.method == "DELETE"):
                     meth = "{cor}{metodo}{reset}".format(cor=cRED,metodo=self.method,reset=cRESET_ALL)
-                elif(self.method == "PUT"):
+                elif(self.method == "PATCH"):
                     meth = "{cor}{metodo}{reset}".format(cor=cYELLOW,metodo=self.method,reset=cRESET_ALL)
 
                 if((code >= 200) and (code < 300)):
@@ -321,7 +341,7 @@ class Field:
 class Endpoint:
     '''
         representa um endpoint
-        deve implementar GET/POST/DELETE/PUT
+        deve implementar GET/POST/DELETE/PATCH
     '''
     def __init__(self, table):
         self.url = table.name
@@ -331,7 +351,7 @@ class Endpoint:
         self.get = table.read
         self.post = table.create
         self.delete = table.delete
-        self.put = table.update
+        self.patch = table.update
 
         self.pk = self.findPk()
 
@@ -350,7 +370,7 @@ class Endpoint:
         return (self.conn, self.cur)
 
     def __str__(self):
-        return "/{0} [GET:{1} POST:{2} DELETE:{3} PUT:{4}]".format(self.url,self.get, self.post,self.delete,self.put)
+        return "/{0} [GET:{1} POST:{2} DELETE:{3} PATCH:{4}]".format(self.url,self.get, self.post,self.delete,self.patch)
 
     def returnGet(self, filtro = None):
         #TODO foreign keys
@@ -424,8 +444,34 @@ class Endpoint:
         conn.close()
         return False
 
-    def returnPut(self, filtro = None):
-        return
+    def returnPatch(self, idPk, data):
+        try:
+            payload = json.loads(data)
+            pq = ""
+            for k in payload.keys():
+                if(isinstance(payload[k],basestring)):
+                    s = "'{0}'".format(payload[k])
+                else:
+                    s = "{0}".format(payload[k])
+                pq+="{0}={1}, ".format(k,s)
+            pq = pq.rstrip(", ")
+        except:
+            raise
+            return (None, None)
+
+        query = "UPDATE {tableName} SET {preQuery} WHERE {PK} = {ID}".format(tableName = self.url,preQuery = pq, PK = self.pk.name, ID = idPk)
+        conn, cur = self.prepareDatabase()
+        try:
+            ret = cur.execute(query)
+            if(ret.rowcount == 0):
+                conn.close()
+                return (False,"")
+            conn.commit()
+            conn.close()
+            return (True,"")
+        except sqlite3.IntegrityError as e:
+            conn.close()
+            return (True,str(e))
 
 class Fetcher:
     '''
@@ -640,9 +686,6 @@ if __name__ == "__main__":
             build()
         elif(sys.argv[1] == "run"):
             e = parse()
-            build(True)
-
-            #TODO implementar novas portas
             run(e)
         else:
             raise
