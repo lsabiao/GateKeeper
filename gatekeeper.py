@@ -15,7 +15,9 @@ try:
     cBLUE = colorama.Fore.BLUE
     cGREEN = colorama.Fore.GREEN
     cYELLOW = colorama.Fore.YELLOW
+    cBRIGHT = colorama.Style.BRIGHT
     cRESET_ALL = colorama.Style.RESET_ALL
+
 except:
     import platform
     if(platform.system() == "Linux"):
@@ -23,16 +25,26 @@ except:
         cBLUE = "\033[34m"
         cGREEN = "\033[32m"
         cYELLOW = "\033[33m"
+        cBRIGHT = "\33[37;1m"
         cRESET_ALL = "\33[0m"
+
     else:
         cRED = ""
         cBLUE = ""
         cGREEN = ""
         cYELLOW = ""
+        cBRIGHT = ""
         cRESET_ALL = ""
 
-_ver_ = "0.3"
 
+_ver_ = "0.4"
+#TODO SQL INJECTION
+#TODO TOKEN
+#TODO JWT
+#TODO INDEX
+#TODO FOREIGN KEY
+#TODO SELECT FILTERS
+#TODO UNICODE
 asciimsg ='''
 welcome to the{0} _         _   __
               | |       | | / /
@@ -52,7 +64,6 @@ _db_ = "test.sqlite"
 
 #config's header
 header = "***the gateKeeper's config file***"
-
 
 class Server:
     '''
@@ -204,8 +215,10 @@ class Server:
                 self.conn.sendall(self.response)
                 self.conn.close()
             except:
-                raise
+                #raise
                 self.response = self.makeResponse(500,"error")
+                print(cRED+("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],self.method,self.url,self.arguments,500))+cRESET_ALL)
+                self.conn.sendall(self.response)
                 self.conn.close()
 
     def getUrl(self,url):
@@ -237,106 +250,6 @@ class Server:
         date = datetime.datetime.now()
         template = "HTTP/1.1 {status}\r\nLocation: {location}\r\nDate:{date}\r\nServer: {server}\r\nContent-Type: application/json\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n{body}".format(status="status",location=self.location,date=date,server="gateKeeper "+_ver_,size=len(arg),body=arg)
         return template.encode()
-
-class Table:
-    '''
-       representa uma tabela, com seus campos e estrutura
-    '''
-    def __init__(self,name):
-        self.name = name
-        self.sql = ""
-        self.fields = []
-
-        self.create = False
-        self.read   = True #you can always read a table
-        self.update = False
-        self.delete = False
-
-    def setPermissions(self,number):
-        '''
-            duc
-            000 = 0
-            001 = 1
-            010 = 2
-            011 = 3
-            100 = 4
-            101 = 5
-            110 = 6
-            111 = 7
-        '''
-
-        #transform the number into the mask
-        pre = "{0:b}".format(int(number)).zfill(3)
-
-        if(pre[2] == "1"):
-            self.create = True
-        if(pre[1] == "1"):
-            self.update = True
-        if(pre[0] == "1"):
-            self.delete = True
-
-
-    def serialize(self,f):
-        try:
-            f.write("\n[{0}]-7\n".format(self.name))
-            for c in self.fields:
-                mask = "!"
-                if(c.PK):
-                    mask = "#"
-
-                rel = ""
-                if(c.relation is not None):
-                    rel="({0})".format(c.relation)
-
-                f.write("{1}{0}{2}-{3}\n".format(c.name,mask,rel,c.type))
-
-            return True
-        except:
-            raise
-            return False
-
-
-    def __str__(self):
-        return self.name
-
-class ReturnableMaker:
-    '''
-
-    '''
-    def __init__(self,headerList):
-        self.headers = []
-        for header in headerList:
-            self.headers.append(header)
-
-    def createReturnable(self,*args):
-
-        if(len(args[0]) == len(self.headers)):
-            r = {}
-            for ar in range(len(args[0])):
-                r[self.headers[ar]] = args[0][ar]
-            return r
-        else:
-            raise RuntimeWarning('Number of headers is different then the number of fields')
-
-class Field:
-    '''
-        representa um campo da tabela
-    '''
-    def __init__(self):
-        self.name = ""
-        self.type = ""
-        self.null = False
-        self.pk = False
-        self.relation = None
-        self.AI = False
-
-    def __str__(self):
-        try:
-            pre = self.relation.replace(";","(")+")"
-        except:
-            pre = "None"
-        return "{0} ({1}) PK:{2} null:{3} REFERENCES {4}".format(self.name,\
-                self.type,self.pk,self.null,pre)
 
 class Endpoint:
     '''
@@ -373,9 +286,6 @@ class Endpoint:
         return "/{0} [GET:{1} POST:{2} DELETE:{3} PATCH:{4}]".format(self.url,self.get, self.post,self.delete,self.patch)
 
     def returnGet(self, filtro = None):
-        #TODO foreign keys
-        #TODO filtros
-
         fieldNames = []
 
         for tab in self.table.fields:
@@ -473,6 +383,106 @@ class Endpoint:
             conn.close()
             return (True,str(e))
 
+class Table:
+    '''
+       representa uma tabela, com seus campos e estrutura
+    '''
+    def __init__(self,name):
+        self.name = name
+        self.sql = ""
+        self.fields = []
+
+        self.create = False
+        self.read   = True #you can always read a table
+        self.update = False
+        self.delete = False
+
+    def setPermissions(self,number):
+        '''
+            duc
+            000 = 0
+            001 = 1
+            010 = 2
+            011 = 3
+            100 = 4
+            101 = 5
+            110 = 6
+            111 = 7
+        '''
+
+        #transform the number into the mask
+        pre = "{0:b}".format(int(number)).zfill(3)
+
+        if(pre[2] == "1"):
+            self.create = True
+        if(pre[1] == "1"):
+            self.update = True
+        if(pre[0] == "1"):
+            self.delete = True
+
+
+    def serialize(self,f):
+        try:
+            f.write("\n[{0}]-7\n".format(self.name))
+            for c in self.fields:
+                mask = "!"
+                if(c.pk):
+                    mask = "#"
+
+                rel = ""
+                if(c.relation is not None):
+                    rel="({0})".format(c.relation)
+
+                f.write("{1}{0}{2}-{3}\n".format(c.name,mask,rel,c.type))
+
+            return True
+        except:
+            raise
+            return False
+
+
+    def __str__(self):
+        return self.name
+
+class Field:
+    '''
+        representa um campo da tabela
+    '''
+    def __init__(self):
+        self.name = ""
+        self.type = ""
+        self.null = False
+        self.pk = False
+        self.relation = None
+        self.AI = False
+
+    def __str__(self):
+        try:
+            pre = self.relation.replace(";","(")+")"
+        except:
+            pre = "None"
+        return "{0} ({1}) PK:{2} null:{3} REFERENCES {4}".format(self.name,\
+                self.type,self.pk,self.null,pre)
+
+class ReturnableMaker:
+    '''
+
+    '''
+    def __init__(self,headerList):
+        self.headers = []
+        for header in headerList:
+            self.headers.append(header)
+
+    def createReturnable(self,*args):
+
+        if(len(args[0]) == len(self.headers)):
+            r = {}
+            for ar in range(len(args[0])):
+                r[self.headers[ar]] = args[0][ar]
+            return r
+        else:
+            raise RuntimeWarning('Number of headers is different then the number of fields')
+
 class Fetcher:
     '''
         encontra e processa os valores que estao no banco de dados
@@ -498,7 +508,7 @@ class Fetcher:
                 aux = Table(t[0])
                 aux.sql = t[1]
                 if(self.verbose):
-                    print("\nfound table: '{0}'.".format(aux))
+                    print("\nfound table: '{0}'.".format(cGREEN+str(aux)+cRESET_ALL))
                 #fetch the fields from the new table
                 aux.fields = self.fetchFields(aux)
                 #append to the return
@@ -542,9 +552,8 @@ class Fetcher:
                 try:
                     tab,row = info[3].replace(")","").split("(")
                 except:
-                    #TODO pegar automaticamente a PK da tabela
                     if(self.verbose):
-                        print("    warning: strange relationship found.")
+                        print("    {0}warning{1}: strange relationship found.".format(cRED,cRESET_ALL))
                         print("        [{0}]".format(r.replace("FK","FOREIGN KEY")))
                         print("        ignoring...")
                     #something went wrong.
@@ -553,8 +562,8 @@ class Fetcher:
 
                 found.relation = "{0};{1}".format(tab,row)
                 if(self.verbose):
-                    print("    relationship: between the ({0}) and the table '{1}({2})'".\
-                        format(found.name,tab,row))
+                    print("    {yellow}relationship{reset}: between the ({blue}{0}{reset}) and the table '{green}{1}{reset}({blue}{2}{reset})'".\
+                        format(found.name,tab,row,blue=cBLUE,reset=cRESET_ALL,green=cGREEN,red=cRED,yellow=cYELLOW))
                 continue
             elif(info[0][0] == "`"):
                 f.name = info[0].replace("`","")
@@ -564,7 +573,8 @@ class Fetcher:
                 if(info[1] == "BLOB"):
                     #ignore BLOB fields
                     if(self.verbose):
-                        print("    field: {0} of type BLOB found.".format(f.name))
+                        print()
+                        print("    {red}Warning{reset}: field: {0} of type BLOB found.".format(f.name,red=cRED,reset=cRESET_ALL))
                         print("        ignoring....")
                     continue
                 f.type = info[1]
@@ -580,9 +590,8 @@ class Fetcher:
                 if("AUTOINCREMENT" in info):
                     f.AI = True
                 if(self.verbose):
-                    print("    field: {0} of type {1} found.".format(f.name,f.type))
+                    print("    field: {blue}{0}{reset} of type {colort}{1}{reset} found.".format(f.name,f.type,blue=cBLUE,reset=cRESET_ALL,colort = cBRIGHT))
                 fields.append(f)
-        #TODO testar isso com todos os tipos de fields possiveis
         return fields
 
 def build(readOnly = False):
@@ -591,7 +600,7 @@ def build(readOnly = False):
     '''
     if(readOnly == False):
         print("Building...")
-        print("database: {0}".format(_db_))
+        print("database: {bright}{0}{reset}".format(_db_,bright=cBRIGHT,reset=cRESET_ALL))
     f = Fetcher()
     f.verbose = not readOnly
     if(readOnly == False):
@@ -601,26 +610,26 @@ def build(readOnly = False):
 
 
     if(readOnly == False):
-        print("Creating config file.")
+        print("\nCreating {bright}config file{reset}.".format(bright=cBRIGHT,reset=cRESET_ALL))
         f = open("build.gk","w")
-        print("    Writing headers")
+        print("    Writing {red}headers{reset}\n".format(red=cRED,reset=cRESET_ALL))
 
         f.write(header)
         f.write("\n\n")
         for tab in setOfTables:
-            print("    writing table: {0}".format(tab))
+            print("    writing table: {green}{0}{reset}".format(tab,green=cGREEN,reset=cRESET_ALL))
             tab.serialize(f)
 
     if(readOnly == False):
         print("\n")
-        print("Build complete.")
+        print("{bright}Build complete.{reset}\n".format(bright=cBRIGHT,reset=cRESET_ALL))
 
 def parse(configFile='build.gk'):
-    print("reading: {0}".format(configFile))
+    print("reading: {bright}{0}{reset}".format(configFile,bright=cBRIGHT,reset=cRESET_ALL))
     try:
         f = open(configFile,'r').read().split("\n")
     except:
-        print("File not found.")
+        print("{red}File not found.{reset}".format(red=cRED,reset=cRESET_ALL))
         sys.exit(1)
 
     #tables array
@@ -642,7 +651,7 @@ def parse(configFile='build.gk'):
             currentTable = Table(line[1:-3])
             mask = line[-1]
             currentTable.setPermissions(mask)
-            print(".{0}".format(currentTable))
+            print(".{green}{0}{reset}".format(currentTable,green=cGREEN,reset=cRESET_ALL))
         elif((line[0] == "!") or (line[0] == "#")):
             #create,read,update,delete field
             #prepare the field
@@ -658,7 +667,7 @@ def parse(configFile='build.gk'):
                 currentTable.fields.append(nf)
             else:
                 #it's a field outside a table.
-                print("Parser Error: Field {0} outside a table".format(pre[0]))
+                print("{red}Parser Error{reset}: Field {0} outside a table".format(pre[0],red=cRED,reset=cRESET_ALL))
                 sys.exit(1)
     #last table
     if(currentTable is not None):
@@ -679,16 +688,28 @@ def run(endpoints,port = 8088):
     web.run()
 
 if __name__ == "__main__":
-    print(asciimsg)
+    try:
+        a = sys.argv[1]
+    except:
+        print("Options are '{0}build{1}', '{0}run{1}' or '{0}buildrun{1}'".format(cBRIGHT,cRESET_ALL))
     try:
         #let's parse the args
         if(sys.argv[1] == "build"):
+            print(asciimsg)
             build()
-        elif(sys.argv[1] == "run"):
+        if(sys.argv[1] == "run"):
+            #print(asciimsg)
+            e = parse()
+            run(e)
+        if(sys.argv[1] == "buildrun"):
+            print(asciimsg)
+            build()
             e = parse()
             run(e)
         else:
             raise
+
     except:
-        raise
-        print("Options are 'build' or 'run'")
+        #raise
+
+        pass
