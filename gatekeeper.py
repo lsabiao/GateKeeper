@@ -28,8 +28,8 @@ except:
         cBLUE = "\033[34m"
         cGREEN = "\033[32m"
         cYELLOW = "\033[33m"
-        cBRIGHT = "\33[37;1m"
-        cRESET_ALL = "\33[0m"
+        cBRIGHT = "\033[37;1m"
+        cRESET_ALL = "\033[0m"
 
     else:
         cRED = ""
@@ -48,7 +48,7 @@ except:
     print "run {bright} pip install python-jose {reset}{red} to enable jwt{reset}".format(bright=cBRIGHT,red=cRED,reset=cRESET_ALL)
     jwtEnabled = False
 
-jwtEnabled = True #not implemented... yet
+jwtEnabled = False #not implemented... yet
 
 #TODO JWT
 #   desempacotar o jwt recebido
@@ -56,12 +56,10 @@ jwtEnabled = True #not implemented... yet
 #   get e delete nao tem body para jwt, oque faremos?
 #TODO desabilitar o jwt por parametro
 
-_ver_ = "0.6"
+_ver_ = "0.7"
 #TODO SQL INJECTION
 #   escapar todos os caracteres em todas as queries
 
-#TODO INDEX
-#   adicionar um index aonde são listados todos os endpoints
 
 #TODO FOREIGN KEY
 #   pegar a relação entre duas tablelas
@@ -142,7 +140,6 @@ class Server:
             try:
                 #pegar o caminho
                 self.url = self.getUrl(self.data)
-
                 #the request URL Arguments
                 try:
                     self.arguments = self.getUrlArgs(self.data)
@@ -163,9 +160,20 @@ class Server:
                 code = 404
                 payload = "Not Found"
                 exists = False
+
                 for a in self.endpoints:
                     if(self.url == a.url):
                         exists = True
+
+                #THE Index returns the list of endpoints
+                if(self.method == "GET" and (self.url=="/" or self.url == "index.html")):
+                    exists == False
+                    prep = []
+                    for f in self.endpoints:
+                        aux = {"url":f.url,"get":f.get,"post":f.post,"delete":f.delete,"patch":f.patch}
+                        prep.append(aux)
+                        payload = json.dumps(prep,ensure_ascii=False)
+                        code = 200
 
 
                 for point in self.endpoints:
@@ -182,7 +190,7 @@ class Server:
                                 payload = "Auth Error"
                                 break
                         except:
-                            raise
+
                             code = 403
                             payload = "Auth Error"
                             break
@@ -797,18 +805,17 @@ if __name__ == "__main__":
         if(sys.argv[1] == "build"):
             print(asciimsg)
             build()
-        if(sys.argv[1] == "run"):
+        elif(sys.argv[1] == "run"):
             #print(asciimsg)
             e = parse()
             run(e)
-        if(sys.argv[1] == "buildrun"):
+        elif(sys.argv[1] == "buildrun"):
             print(asciimsg)
             build()
             e = parse()
             run(e)
         else:
-            raise
+            print("Options are '{0}build{1}', '{0}run{1}' or '{0}buildrun{1}'".format(cBRIGHT,cRESET_ALL))
 
     except:
         raise
-        pass
