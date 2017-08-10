@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import sys
 import sqlite3
 
@@ -36,15 +39,40 @@ except:
         cBRIGHT = ""
         cRESET_ALL = ""
 
+secToken = ""
+try:
+    from jose import jwt
+    jwtEnabled = True
+except:
+    print "{red}python-jose is not avaible!".format(red=cRED)
+    print "run {bright} pip install python-jose {reset}{red} to enable jwt{reset}".format(bright=cBRIGHT,red=cRED,reset=cRESET_ALL)
+    jwtEnabled = False
 
-_ver_ = "0.4"
+_ver_ = "0.5a"
 #TODO SQL INJECTION
-#TODO TOKEN
+#   escapar todos os caracteres em todas as queries
+
+
 #TODO JWT
+#   desempacotar o jwt recebido
+#   empacotar todo o output
+
+#TODO desabilitar o jwt por parametro
+
 #TODO INDEX
+#   adicionar um index aonde são listados todos os endpoints
+
 #TODO FOREIGN KEY
+#   pegar a relação entre duas tablelas
+#   pegar o resultado na outra tabela e adicionar ao dict atual
+
 #TODO SELECT FILTERS
+#   avaliar a possibilidade
+
 #TODO UNICODE
+#   decode em toda string recebida
+#   encode em toda string enviada
+
 asciimsg ='''
 welcome to the{0} _         _   __
               | |       | | / /
@@ -57,7 +85,7 @@ welcome to the{0} _         _   __
 '''.format(cBLUE,cRESET_ALL)
 
 #path to the sqlite
-_db_ = "test.sqlite"
+_db_ = "dedig.sqlite"
 
 #ANSI Colors
 
@@ -83,6 +111,7 @@ class Server:
         304 - not modified
 
         401 - bad request
+        403 - forbidden
         405 - method not allowed
         409 - conflict
 
@@ -114,7 +143,6 @@ class Server:
             self.conn, self.addr = self.s.accept()
             self.data = self.conn.recv(1024)
             try:
-
                 #pegar o caminho
                 self.url = self.getUrl(self.data)
 
@@ -126,71 +154,105 @@ class Server:
                 #the request Method
                 self.method = self.data.split(b" ")[0].decode()
 
+                #the headers
+                try:
+                    self.headers = self.getHeaders(self.data)
+                except:
+                    raise
+                    self.headers = None
+
                 self.body = self.getBody(self.data)
                 #find the endpoint
                 code = 404
                 payload = "Not Found"
+                exists = False
+                for a in self.endpoints:
+                    if(self.url == a.url):
+                        exists = True
+
+
                 for point in self.endpoints:
-                    if(point.url == self.url):
+                    if(exists == False):
+                        break
 
-                        #THE SELECT ENDPOINT
-                        if(self.method == "GET"):
-                            if(point.get == True):
+                    #authentication
+                    if(jwtEnabled):
+                        pass
+                    else:
+                        try:
+                            if(self.headers["Auth"] != secToken):
+                                code = 403
+                                payload = "Auth Error"
+                                break
+                        except:
+                            raise
+                            code = 403
+                            payload = "Auth Error"
+                            break
+
+                    #routing the method
+                    #THE SELECT ENDPOINT
+                    if(self.method == "GET"):
+                        if(point.get == True):
+                            code = 200
+                            payload = point.returnGet(self.arguments)
+                            break
+
+                    #THE INSERT ENDPOINT
+                    elif(self.method == "POST"):
+                        if(point.post == True):
+                            job = point.returnPost(self.body)
+                            if(job[0] == True):
+                                code = 201
+                                payload = job[1] #table/id
+                                break
+                            elif(job[0] == None): #json parser error
+                                code = 401
+                                payload = "Error while parsing the JSON"
+                                break
+                            elif(job[0] == False):
+                                code = 409 #conflict
+                                payload = job[1]
+                                break
+
+                    #THE DELETE ENDPOINT
+                    elif(self.method == "DELETE"):
+                        payload = ""
+                        if(self.arguments == ""):
+                            code = 405
+                            break
+                        elif(point.delete == True):
+                            if(point.returnDelete(self.arguments)):
                                 code = 200
-                                payload = point.returnGet(self.arguments)
+                                break
+                            else:
+                                code = 304
+                                break
 
-                        #THE INSERT ENDPOINT
-                        elif(self.method == "POST"):
-                            if(point.post == True):
-                                job = point.returnPost(self.body)
-                                if(job[0] == True):
-                                    code = 201
-                                    payload = job[1] #table/id
-                                    continue
-                                elif(job[0] == None): #json parser error
-                                    code = 500
-                                    payload = "Error while parsing the JSON"
-                                    continue
-                                elif(job[0] == False):
-                                    code = 409 #conflict
-                                    payload = job[1]
-
-                        #THE DELETE ENDPOINT
-                        elif(self.method == "DELETE"):
-                            payload = ""
+                    #THE UPDATE ENDPOINT
+                    elif(self.method == "PATCH"):
+                        if(point.patch == True):
                             if(self.arguments == ""):
-                                code = 405
-                                continue
-                            elif(point.delete == True):
-                                if(point.returnDelete(self.arguments)):
-                                    code = 200
-                                else:
-                                    code = 304
-
-                        #THE UPDATE ENDPOINT
-                        elif(self.method == "PATCH"):
-                            if(point.patch == True):
-                                if(self.arguments == ""):
-                                    code = 401
-                                    payload = ""
-                                    continue
-                                if(self.body == ""):
-                                    code = 204
-                                    payload = "no body found"
-                                    continue
-                                job = point.returnPatch(self.arguments,self.body)
-                                if(job[0] == True):
-                                    code = 201
-                                    payload = ""
-                                    continue
-                                elif(job[0] == False):
-                                    code = 404
-                                    payload = ""
-                                elif(job[0] == None): #json parser error
-                                    code = 500
-                                    payload = "Error while parsing the JSON"
-
-
+                                code = 401
+                                payload = ""
+                                break
+                            if(self.body == ""):
+                                code = 204
+                                payload = "no body found"
+                                break
+                            job = point.returnPatch(self.arguments,self.body)
+                            if(job[0] == True):
+                                code = 201
+                                payload = ""
+                                break
+                            elif(job[0] == False):
+                                code = 404
+                                payload = ""
+                                break
+                            elif(job[0] == None): #json parser error
+                                code = 401
+                                payload = "Error while parsing the JSON"
+                                break
                 #COLORS!!!
                 if(self.method == "GET"):
                     meth = "{cor}{metodo}{reset}".format(cor=cGREEN,metodo=self.method,reset=cRESET_ALL)
@@ -202,20 +264,20 @@ class Server:
                     meth = "{cor}{metodo}{reset}".format(cor=cYELLOW,metodo=self.method,reset=cRESET_ALL)
 
                 if((code >= 200) and (code < 300)):
-                    code = cGREEN+str(code)+cRESET_ALL
+                    cCode = cGREEN+str(code)+cRESET_ALL
                 elif((code >= 300) and (code < 400)):
-                    code = cBLUE+str(code)+cRESET_ALL
+                    cCode = cBLUE+str(code)+cRESET_ALL
                 elif((code >= 400 ) and (code < 500)):
-                    code = cYELLOW+str(code)+cRESET_ALL
+                    cCode = cYELLOW+str(code)+cRESET_ALL
                 else:
-                    code = cRED+str(code)+cRESET_ALL
+                    cCode = cRED+str(code)+cRESET_ALL
 
-                print("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],meth,self.url,self.arguments,code))
+                print("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],meth,self.url,self.arguments,cCode))
                 self.response = self.makeResponse(code,payload)
                 self.conn.sendall(self.response)
                 self.conn.close()
             except:
-                #raise
+                raise
                 self.response = self.makeResponse(500,"error")
                 print(cRED+("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],self.method,self.url,self.arguments,500))+cRESET_ALL)
                 self.conn.sendall(self.response)
@@ -241,14 +303,35 @@ class Server:
         ret = arg.split("/")
         return ret[1].decode()
 
-    def getBody(self,data):
-        data = data.split(b"\r\n")[-1]
+    def getBody(self,request):
+        #BIIIIIIRL!!!
+        #multiline?
+        data = request.split(b"\r\n")[-1]
         return data
+
+    def getHeaders(self,request):
+        data = request.split(b"\r\n")[1:]
+        #must be between the [1] and the blank one
+        #let's find the blank one
+        try:
+            blankOne = data.index(b"\r\n")
+        except:
+            blankOne = (len(data)-2)
+        #create the dict
+        heads = {}
+        for h in data[0:blankOne]:
+            try:
+                aux = h.split(":")
+                heads[aux[0]] = aux[1].strip()
+            except:
+                continue
+        return heads
+
 
     def makeResponse(self,status,arg):
         import datetime
         date = datetime.datetime.now()
-        template = "HTTP/1.1 {status}\r\nLocation: {location}\r\nDate:{date}\r\nServer: {server}\r\nContent-Type: application/json\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n{body}".format(status="status",location=self.location,date=date,server="gateKeeper "+_ver_,size=len(arg),body=arg)
+        template = "HTTP/1.1 {status}\r\nLocation: {location}\r\nDate:{date}\r\nServer: {server}\r\nContent-Type: application/json\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n{body}".format(status=status,location=self.location,date=date,server="gateKeeper "+_ver_,size=len(arg),body=arg)
         return template.encode()
 
 class Endpoint:
@@ -615,16 +698,32 @@ def build(readOnly = False):
         print("    Writing {red}headers{reset}\n".format(red=cRED,reset=cRESET_ALL))
 
         f.write(header)
+        f.write("\n")
+
+        #create the token
+        import hashlib
+        import random
+        size = 24
+        preToken = ""
+        for c in xrange(size):
+            aux = chr(random.randint(34,122))
+            preToken+= aux
+        token = hashlib.sha256()
+        token.update(preToken)
+        f.write("token: {}".format(token.hexdigest()))
         f.write("\n\n")
         for tab in setOfTables:
             print("    writing table: {green}{0}{reset}".format(tab,green=cGREEN,reset=cRESET_ALL))
             tab.serialize(f)
 
+
     if(readOnly == False):
+
         print("\n")
         print("{bright}Build complete.{reset}\n".format(bright=cBRIGHT,reset=cRESET_ALL))
 
 def parse(configFile='build.gk'):
+    global secToken
     print("reading: {bright}{0}{reset}".format(configFile,bright=cBRIGHT,reset=cRESET_ALL))
     try:
         f = open(configFile,'r').read().split("\n")
@@ -637,6 +736,8 @@ def parse(configFile='build.gk'):
     print("Parsing...")
     currentTable = None
     for line in f:
+        if(line.startswith("token: ")):
+            secToken = line.split(":")[1].strip()
         line = line.strip()
         try:
             #is it a blank line?
@@ -710,6 +811,5 @@ if __name__ == "__main__":
             raise
 
     except:
-        #raise
-
+        raise
         pass
