@@ -48,16 +48,17 @@ except:
     print "run {bright} pip install python-jose {reset}{red} to enable jwt{reset}".format(bright=cBRIGHT,red=cRED,reset=cRESET_ALL)
     jwtEnabled = False
 
-_ver_ = "0.5a"
-#TODO SQL INJECTION
-#   escapar todos os caracteres em todas as queries
-
+jwtEnabled = True #not implemented... yet
 
 #TODO JWT
 #   desempacotar o jwt recebido
 #   empacotar todo o output
-
+#   get e delete nao tem body para jwt, oque faremos?
 #TODO desabilitar o jwt por parametro
+
+_ver_ = "0.6"
+#TODO SQL INJECTION
+#   escapar todos os caracteres em todas as queries
 
 #TODO INDEX
 #   adicionar um index aonde são listados todos os endpoints
@@ -68,10 +69,6 @@ _ver_ = "0.5a"
 
 #TODO SELECT FILTERS
 #   avaliar a possibilidade
-
-#TODO UNICODE
-#   decode em toda string recebida
-#   encode em toda string enviada
 
 asciimsg ='''
 welcome to the{0} _         _   __
@@ -272,6 +269,7 @@ class Server:
                 else:
                     cCode = cRED+str(code)+cRESET_ALL
 
+                #payload = payload.encode('utf-8')
                 print("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],meth,self.url,self.arguments,cCode))
                 self.response = self.makeResponse(code,payload)
                 self.conn.sendall(self.response)
@@ -332,7 +330,7 @@ class Server:
         import datetime
         date = datetime.datetime.now()
         template = "HTTP/1.1 {status}\r\nLocation: {location}\r\nDate:{date}\r\nServer: {server}\r\nContent-Type: application/json\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n{body}".format(status=status,location=self.location,date=date,server="gateKeeper "+_ver_,size=len(arg),body=arg)
-        return template.encode()
+        return template
 
 class Endpoint:
     '''
@@ -389,32 +387,33 @@ class Endpoint:
 
         if(payload == []):
             return ""
-        return json.dumps(payload)
+        return json.dumps(payload,ensure_ascii=False).encode('utf-8')
 
     def returnPost(self, data):
         #parse the Json
         try:
-            payload = json.loads(data)
+            payload = json.loads(data,'utf-8')
             preCols = payload.keys()
 
-            cols = ""
+            cols = u""
             for c in preCols:
-                cols += c+", "
-            cols = cols.rstrip(", ")
+                cols += c+u", "
+            cols = cols.rstrip(u", ")
 
-            vals = ""
+            vals = u""
             for k in preCols:
                 #is this a string
                 if(isinstance(payload[k],basestring)):
-                        vals += "'"+str(payload[k])+"', "
+                        vals += u"'"+unicode(payload[k])+u"', "
                 else:
-                    vals += str(payload[k])+", "
-            vals = vals.rstrip(", ")
+                    vals += unicode(payload[k])+u", "
+            vals = vals.rstrip(u", ")
         except:
+            raise
             return (None,None)
 
         #SQL TIME!
-        query = "INSERT INTO {tableName}({cols}) VALUES({vals})".format(tableName = self.url, cols = cols, vals = vals)
+        query = u"INSERT INTO {tableName}({cols}) VALUES({vals})".format(tableName = self.url, cols = cols, vals = vals)
 
         conn, cur = self.prepareDatabase()
         try:
@@ -440,19 +439,19 @@ class Endpoint:
     def returnPatch(self, idPk, data):
         try:
             payload = json.loads(data)
-            pq = ""
+            pq = u""
             for k in payload.keys():
                 if(isinstance(payload[k],basestring)):
-                    s = "'{0}'".format(payload[k])
+                    s = u"'{0}'".format(payload[k])
                 else:
-                    s = "{0}".format(payload[k])
-                pq+="{0}={1}, ".format(k,s)
-            pq = pq.rstrip(", ")
+                    s = u"{0}".format(payload[k])
+                pq+=u"{0}={1}, ".format(k,s)
+            pq = pq.rstrip(u", ")
         except:
             raise
             return (None, None)
 
-        query = "UPDATE {tableName} SET {preQuery} WHERE {PK} = {ID}".format(tableName = self.url,preQuery = pq, PK = self.pk.name, ID = idPk)
+        query = u"UPDATE {tableName} SET {preQuery} WHERE {PK} = {ID}".format(tableName = self.url,preQuery = pq, PK = self.pk.name, ID = idPk)
         conn, cur = self.prepareDatabase()
         try:
             ret = cur.execute(query)
