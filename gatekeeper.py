@@ -48,15 +48,7 @@ except:
     print "run {bright} pip install python-jose {reset}{red} to enable jwt{reset}".format(bright=cBRIGHT,red=cRED,reset=cRESET_ALL)
     jwtEnabled = False
 
-jwtEnabled = False #not implemented... yet
-
-#TODO JWT
-#   desempacotar o jwt recebido
-#   empacotar todo o output
-#   get e delete nao tem body para jwt, oque faremos?
-#TODO desabilitar o jwt por parametro
-
-_ver_ = "0.7"
+_ver_ = "0.8"
 #TODO SQL INJECTION
 #   escapar todos os caracteres em todas as queries
 
@@ -152,7 +144,6 @@ class Server:
                 try:
                     self.headers = self.getHeaders(self.data)
                 except:
-                    raise
                     self.headers = None
 
                 self.body = self.getBody(self.data)
@@ -181,8 +172,15 @@ class Server:
                         break
 
                     #authentication
+                    print jwtEnabled
                     if(jwtEnabled):
-                        pass
+                        #if get or delete -> the timestamp
+                        #if patch or post -> the body
+                        if(self.body == ""):
+                            code = 403
+                            payload = "Auth Error"
+                            break
+                        self.body = json.dumps(jwt.decode(self.body,secToken,algorithms=['HS256']))
                     else:
                         try:
                             if(self.headers["Auth"] != secToken):
@@ -283,6 +281,7 @@ class Server:
                 self.conn.sendall(self.response)
                 self.conn.close()
             except:
+                #TODO RETIRAR
                 raise
                 self.response = self.makeResponse(500,"error")
                 print(cRED+("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],self.method,self.url,self.arguments,500))+cRESET_ALL)
@@ -417,7 +416,6 @@ class Endpoint:
                     vals += unicode(payload[k])+u", "
             vals = vals.rstrip(u", ")
         except:
-            raise
             return (None,None)
 
         #SQL TIME!
@@ -430,6 +428,10 @@ class Endpoint:
             conn.close()
             return (True,"/"+self.url+"/"+str(cur.lastrowid))
         except sqlite3.IntegrityError as e:
+            conn.close()
+            return (False,str(e))
+
+        except sqlite3.OperationalError as e:
             conn.close()
             return (False,str(e))
 
@@ -456,7 +458,6 @@ class Endpoint:
                 pq+=u"{0}={1}, ".format(k,s)
             pq = pq.rstrip(u", ")
         except:
-            raise
             return (None, None)
 
         query = u"UPDATE {tableName} SET {preQuery} WHERE {PK} = {ID}".format(tableName = self.url,preQuery = pq, PK = self.pk.name, ID = idPk)
@@ -527,7 +528,6 @@ class Table:
 
             return True
         except:
-            raise
             return False
 
 
@@ -800,13 +800,14 @@ if __name__ == "__main__":
         a = sys.argv[1]
     except:
         print("Options are '{0}build{1}', '{0}run{1}' or '{0}buildrun{1}'".format(cBRIGHT,cRESET_ALL))
+    if(("-n" in sys.argv) or ("--nojwt" in sys.argv)):
+        jwtEnabled = False
     try:
         #let's parse the args
         if(sys.argv[1] == "build"):
             print(asciimsg)
             build()
         elif(sys.argv[1] == "run"):
-            #print(asciimsg)
             e = parse()
             run(e)
         elif(sys.argv[1] == "buildrun"):
