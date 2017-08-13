@@ -39,6 +39,7 @@ except:
         cBRIGHT = ""
         cRESET_ALL = ""
 
+auth = True
 secToken = ""
 try:
     from jose import jwt
@@ -48,17 +49,14 @@ except:
     print "run {bright} pip install python-jose {reset}{red} to enable jwt{reset}".format(bright=cBRIGHT,red=cRED,reset=cRESET_ALL)
     jwtEnabled = False
 
-_ver_ = "0.8"
+_ver_ = "0.9"
 #TODO SQL INJECTION
 #   escapar todos os caracteres em todas as queries
 
 
-#TODO FOREIGN KEY
+#TODO FOREIGN KEYs
 #   pegar a relação entre duas tablelas
 #   pegar o resultado na outra tabela e adicionar ao dict atual
-
-#TODO SELECT FILTERS
-#   avaliar a possibilidade
 
 asciimsg ='''
 welcome to the{0} _         _   __
@@ -132,6 +130,7 @@ class Server:
             try:
                 #pegar o caminho
                 self.url = self.getUrl(self.data)
+                self.urlparam = self.getUrlParam(self.data)
                 #the request URL Arguments
                 try:
                     self.arguments = self.getUrlArgs(self.data)
@@ -170,35 +169,33 @@ class Server:
                 for point in self.endpoints:
                     if(exists == False):
                         break
-
                     #authentication
-                    print jwtEnabled
-                    if(jwtEnabled):
-                        #if get or delete -> the timestamp
-                        #if patch or post -> the body
-                        if(self.body == ""):
-                            code = 403
-                            payload = "Auth Error"
-                            break
-                        self.body = json.dumps(jwt.decode(self.body,secToken,algorithms=['HS256']))
-                    else:
-                        try:
-                            if(self.headers["Auth"] != secToken):
+                    if(auth):
+                        if(jwtEnabled):
+                            #if get or delete -> the timestamp
+                            #if patch or post -> the body
+                            if(self.body == ""):
                                 code = 403
                                 payload = "Auth Error"
                                 break
-                        except:
-
-                            code = 403
-                            payload = "Auth Error"
-                            break
+                            self.body = json.dumps(jwt.decode(self.body,secToken,algorithms=['HS256']))
+                        else:
+                            try:
+                                if(self.headers["Auth"] != secToken):
+                                    code = 403
+                                    payload = "Auth Error"
+                                    break
+                            except:
+                                code = 403
+                                payload = "Auth Error"
+                                break
 
                     #routing the method
                     #THE SELECT ENDPOINT
                     if(self.method == "GET"):
                         if(point.get == True):
                             code = 200
-                            payload = point.returnGet(self.arguments)
+                            payload = point.returnGet(self.urlparam)
                             break
 
                     #THE INSERT ENDPOINT
@@ -294,11 +291,24 @@ class Server:
         arg = url.split(b" ")[1]
         arg = arg.lstrip(b"/")
         arg = arg.split("/")[0]
+        arg = arg.split("?")[0]
 
         if(arg == b""):
             arg = b"index.html"
             return arg.decode()
         return arg.decode()
+
+    def getUrlParam(self,url):
+        try:
+            url = url.split(b"\r\n")[0]
+            arg = url.split(b" ")[1]
+            arg = arg.lstrip(b"/")
+            arg = arg.split("/")[0]
+            arg = arg.split("?")[1] #var1=1&var2=2...
+            arg = arg.split("&")
+            return arg
+        except:
+            return None
 
     def getUrlArgs(self,url):
         url = url.split(b"\r\n")[0]
@@ -373,7 +383,8 @@ class Endpoint:
     def __str__(self):
         return "/{0} [GET:{1} POST:{2} DELETE:{3} PATCH:{4}]".format(self.url,self.get, self.post,self.delete,self.patch)
 
-    def returnGet(self, filtro = None):
+    def returnGet(self, filters):
+
         fieldNames = []
 
         for tab in self.table.fields:
@@ -383,7 +394,19 @@ class Endpoint:
         maker = ReturnableMaker(fieldNames)
 
         conn, cur = self.prepareDatabase()
-        query = "SELECT * FROM {tableName}".format(tableName=self.url)
+        if(filters is None):
+            query = "SELECT * FROM {tableName}".format(tableName=self.url)
+        else:
+            #DANGER ZONE
+            setOfFilters = []
+            for condition in filters:
+                f = Filter(condition)
+                setOfFilters.append(f)
+            where = ""
+            for f in setOfFilters:
+                where+=str(f)+" AND "
+            where = where.rstrip(" AND ")
+            query = "SELECT * FROM {tableName} WHERE {where}".format(tableName=self.url,where=where)
         cur.execute(query)
         pre = cur.fetchall()
         conn.close()
@@ -572,6 +595,35 @@ class ReturnableMaker:
             return r
         else:
             raise RuntimeWarning('Number of headers is different then the number of fields')
+
+class Filter:
+
+    operatorList = [">=","<=",">","<","="]
+
+    def __init__(self,param):
+        #param is key=value or key>=value and so on...
+        #search for the operator
+        param = param.replace(";","")
+
+        for o in Filter.operatorList:
+            aux = param.find(o)
+            if(aux >= 0):
+                try:
+                    self.operator = o
+                    self.field = param[:aux].replace(" ","")
+                    self.value = param[aux+len(o):].replace(" ","")
+                    break
+                except:
+
+                    return None
+
+    def __str__(self):
+        try:
+            q = "{0} {1} {2}".format(self.field,self.operator,self.value)
+            return q
+        except:
+            return ""
+
 
 class Fetcher:
     '''
@@ -802,6 +854,8 @@ if __name__ == "__main__":
         print("Options are '{0}build{1}', '{0}run{1}' or '{0}buildrun{1}'".format(cBRIGHT,cRESET_ALL))
     if(("-n" in sys.argv) or ("--nojwt" in sys.argv)):
         jwtEnabled = False
+    if(("-ns" in sys.argv) or ("--nosec" in sys.argv)):
+        auth = False
     try:
         #let's parse the args
         if(sys.argv[1] == "build"):
