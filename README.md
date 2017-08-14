@@ -18,6 +18,7 @@ it's a CLI application, so we need a nice interface
 
 ## arguments
 *-ns* or *--nosec* - means no security JWT and Basic auth
+
 *-n* or *--nojwt* - Basic auth only
 
 ## the config file
