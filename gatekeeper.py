@@ -4,7 +4,7 @@
 import sys
 import sqlite3
 
-#ujson is fasters
+#ujson is faster
 try:
     import ujson as json
 except:
@@ -49,14 +49,9 @@ except:
     print "run {bright} pip install python-jose {reset}{red} to enable jwt{reset}".format(bright=cBRIGHT,red=cRED,reset=cRESET_ALL)
     jwtEnabled = False
 
-_ver_ = "0.9"
+_ver_ = "1.0"
 #TODO SQL INJECTION
 #   escapar todos os caracteres em todas as queries
-
-
-#TODO FOREIGN KEYs
-#   pegar a relação entre duas tablelas
-#   pegar o resultado na outra tabela e adicionar ao dict atual
 
 asciimsg ='''
 welcome to the{0} _         _   __
@@ -70,7 +65,7 @@ welcome to the{0} _         _   __
 '''.format(cBLUE,cRESET_ALL)
 
 #path to the sqlite
-_db_ = "dedig.sqlite"
+_db_ = "test.sqlite"
 
 #ANSI Colors
 
@@ -169,6 +164,8 @@ class Server:
                 for point in self.endpoints:
                     if(exists == False):
                         break
+                    if (point.url != self.url):
+                        continue
                     #authentication
                     if(auth):
                         if(jwtEnabled):
@@ -278,8 +275,7 @@ class Server:
                 self.conn.sendall(self.response)
                 self.conn.close()
             except:
-                #TODO RETIRAR
-                raise
+                #raise
                 self.response = self.makeResponse(500,"error")
                 print(cRED+("{0} requested {1} /{2}/{3} - {4}".format(self.addr[0],self.method,self.url,self.arguments,500))+cRESET_ALL)
                 self.conn.sendall(self.response)
@@ -383,13 +379,50 @@ class Endpoint:
     def __str__(self):
         return "/{0} [GET:{1} POST:{2} DELETE:{3} PATCH:{4}]".format(self.url,self.get, self.post,self.delete,self.patch)
 
+    def checkFK(self,fieldToCheck):
+        #TODO checar se a tabela recuperada tem FK
+
+        vals = fieldToCheck.values()
+        kys = fieldToCheck.keys()
+        for e in kys:
+            if(";" in e):
+                oldValue = fieldToCheck[e]
+                pos = e.find("(")
+                aux = e[pos+1:-1]
+                tab,fie  = aux.split(";")
+                query = "SELECT * FROM {tableName} WHERE {field}={old}".format(tableName=tab,field=fie,old=oldValue)
+                try:
+
+
+                    pragmaQuery = "PRAGMA table_info('{}')".format(tab)
+                    #maker = ReturnableMaker()
+                    conn,cur = self.prepareDatabase()
+                    cur.execute(pragmaQuery)
+                    pre = cur.fetchall()
+                    fieldNames = []
+                    for f in pre:
+                        #get the fields of the tab
+                        fieldNames.append(f[1])
+
+                    rowMaker = ReturnableMaker(fieldNames)
+                    cur.execute(query)
+                    pre = cur.fetchall()
+                    conn.close()
+                    retorno = []
+                    for p in pre:
+                        retorno.append(rowMaker.createReturnable(p))
+                    fieldToCheck.pop(e,None)
+                    fieldToCheck[aux[:pos-1]] = retorno
+                except:
+                    return False
+
+        return fieldToCheck
+
     def returnGet(self, filters):
 
         fieldNames = []
-
         for tab in self.table.fields:
             fieldNames.append(tab.name)
-
         #criar o objeto retornavel
         maker = ReturnableMaker(fieldNames)
 
@@ -397,7 +430,6 @@ class Endpoint:
         if(filters is None):
             query = "SELECT * FROM {tableName}".format(tableName=self.url)
         else:
-            #DANGER ZONE
             setOfFilters = []
             for condition in filters:
                 f = Filter(condition)
@@ -407,16 +439,22 @@ class Endpoint:
                 where+=str(f)+" AND "
             where = where.rstrip(" AND ")
             query = "SELECT * FROM {tableName} WHERE {where}".format(tableName=self.url,where=where)
-        cur.execute(query)
-        pre = cur.fetchall()
-        conn.close()
+
+        try:
+            cur.execute(query)
+            pre = cur.fetchall()
+            conn.close()
+        except sqlite3.OperationalError as e:
+            return str(e)
 
         payload = []
         for p in pre:
-            payload.append(maker.createReturnable(p))
-
+            aux = maker.createReturnable(p)
+            aux = self.checkFK(aux)
+            payload.append(aux)
         if(payload == []):
             return ""
+
         return json.dumps(payload,ensure_ascii=False).encode('utf-8')
 
     def returnPost(self, data):
@@ -603,6 +641,8 @@ class Filter:
     def __init__(self,param):
         #param is key=value or key>=value and so on...
         #search for the operator
+
+
         param = param.replace(";","")
 
         for o in Filter.operatorList:
@@ -848,6 +888,8 @@ def run(endpoints,port = 8088):
     web.run()
 
 if __name__ == "__main__":
+    #TODO escolher o banco por argumento
+
     try:
         a = sys.argv[1]
     except:
@@ -873,4 +915,5 @@ if __name__ == "__main__":
             print("Options are '{0}build{1}', '{0}run{1}' or '{0}buildrun{1}'".format(cBRIGHT,cRESET_ALL))
 
     except:
-        raise
+        pass
+        #raise
