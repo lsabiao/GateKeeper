@@ -11,7 +11,9 @@ it's a CLI application, so we need a nice interface
 
 ## mode
 *python gatekeeper.py build* - read the database and writes the config file
+
 *python gatekeeper.py run* -  read the config file and run the server
+
 *python gatekeeper.py buildrun* - read the database, writes the config file and run the code
 
 ## arguments
