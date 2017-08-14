@@ -1,5 +1,5 @@
 # GateKeeper
-Automatic restfull API from a Database (Work in progress)
+Automatic restful API from a Database (Work in progress)
 
 ![Imgur](http://i.imgur.com/aLKsMhx.png)
 
